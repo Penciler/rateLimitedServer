@@ -7,25 +7,23 @@ import (
     "net/http"
     "fmt"
     "net"
-    //"golang.org/x/time/rate"
 )
 
 // Create a custom visitor struct which holds the rate limiter for each
 // visitor and the last time that the visitor was seen.
 type visitor struct {
-    //limiter  *rate.Limiter
     limiter *limiter
     lastSeen time.Time
 }
 
 
 type limiter struct {
-	numOfReq int
-	lastReq time.Time
-	leak int
-	vol int
+	numOfReq int //number of requests in the bucket
+	lastReq time.Time //the time when last request happend
+	leak int //handled request per second
+	vol int //volume of the bucket
 }
-// Change the the map to hold values of the type visitor.
+// The map to hold values of the type visitor.
 var visitors = make(map[string]*visitor)
 var mu sync.Mutex
 
@@ -34,6 +32,7 @@ func init() {
     go cleanupVisitors()
 }
 
+// Create bucket(limiter)
 func bucket(leak int, vol int) *limiter {
 	l := new(limiter)
 	l.numOfReq = 0
@@ -43,30 +42,25 @@ func bucket(leak int, vol int) *limiter {
 	return l
 }
 
-
-
+// Check if the new request is allowed by Leaky bucket algorithm
 func (l *limiter) allowed() (flag bool){
 	tmp := time.Now().Sub(l.lastReq).Seconds()
-	log.Println(int(tmp))
 	l.numOfReq -= (int(tmp)/l.leak)
 	if(l.numOfReq<0){ 
 		l.numOfReq = 0
 	}
 
-	log.Println(l.numOfReq)
 	if(l.numOfReq<l.vol){
 		l.numOfReq += 1
 		l.lastReq = time.Now()
-		log.Println(l.numOfReq)
 		return true
 	}
 	return false
 } 
 
-//func addVisitor(ip string) *rate.Limiter {
+//Add new visitor when get request from new ip
 func addVisitor(ip string) *limiter {
-    //limiter := rate.NewLimiter(1, 2)
-    limiter := bucket(1,20)
+    limiter := bucket(1,60)
     mu.Lock()
     // Include the current time when creating a new visitor.
     visitors[ip] = &visitor{limiter, time.Now()}
@@ -74,10 +68,8 @@ func addVisitor(ip string) *limiter {
     return limiter
 }
 
-//func getVisitor(ip string) *rate.Limiter {
 func getVisitor(ip string) *limiter {
     mu.Lock()
-    //defer mu.Unlock()
 
     v, exists := visitors[ip]
     if !exists {
@@ -117,10 +109,10 @@ func limit(next http.Handler) http.Handler {
         }
         log.Println(ip)
         limiter := getVisitor(ip)
-        //limiter := addVisitor(ip)
-        //if limiter.Allow() == false {
         if limiter.allowed() == false {
-            http.Error(w, http.StatusText(429), http.StatusTooManyRequests)
+            //http.Error(w, http.StatusText(429), http.StatusTooManyRequests)
+            w.WriteHeader(http.StatusTooManyRequests)
+            fmt.Fprintf(w, "Error, too many request per minutes")
             return
         }
 
@@ -129,22 +121,7 @@ func limit(next http.Handler) http.Handler {
 }
 
 
-//var limiter = rate.NewLimiter(1, 3)
-
-// func limit(next http.Handler) http.Handler {
-//     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-//         if limiter.Allow() == false {
-//             http.Error(w, http.StatusText(429), http.StatusTooManyRequests)
-//             return
-//         }
-
-//         next.ServeHTTP(w, r)
-//     })
-// }
-
-
 func handler(w http.ResponseWriter, r *http.Request) {
-    //fmt.Fprintf(w, "Hi there, I love %s!", r.URL.Path[1:])
         ip, _, err := net.SplitHostPort(r.RemoteAddr)
         if err != nil {
             log.Println(err.Error())
@@ -152,15 +129,14 @@ func handler(w http.ResponseWriter, r *http.Request) {
             return
         }
      mu.Lock()
-    //defer mu.Unlock()
 
     v, exists := visitors[ip]
+    w.WriteHeader(http.StatusOK)
     if !exists {
-    	fmt.Fprintf(w, "Number of requests in 1 minutes %d!", 1)     
+    	fmt.Fprintf(w, "Number of requests in 1 minutes: %d", 1)     
     }else {
-    	fmt.Fprintf(w, "Number of requests in 1 minutes %d!",v.limiter.numOfReq )
+    	fmt.Fprintf(w, "Number of requests in 1 minutes: %d",v.limiter.numOfReq )
     }
-
     mu.Unlock()
 }
 
@@ -171,10 +147,6 @@ func setRoute() http.Handler{
 }
 
 func main() {
-    //http.HandleFunc("/", handler)
-    //log.Fatal(http.ListenAndServe(":8080", nil))
-    //mux := http.NewServeMux()
-    //mux.HandleFunc("/", handler)
 	mux := setRoute();
     // Wrap the servemux with the limit middleware.
     log.Println("Listening on :8080...")

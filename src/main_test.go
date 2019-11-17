@@ -11,8 +11,9 @@ import (
 )
 
 
-func performRequest(r http.Handler, method, path string) *httptest.ResponseRecorder {
+func performRequest(r http.Handler, method, path string, srcIp string) *httptest.ResponseRecorder {
    req, _ := http.NewRequest(method, path, nil)
+   req.RemoteAddr = srcIp
    w := httptest.NewRecorder()
    r.ServeHTTP(w, req)
    return w
@@ -20,68 +21,43 @@ func performRequest(r http.Handler, method, path string) *httptest.ResponseRecor
 
 func TestMain( t *testing.T){
 	mux := setRoute()
-	//http.ListenAndServe(":8080", limit(mux))
-	svr := httptest.NewServer(limit(mux))
+	//svr := httptest.NewServer(limit(mux))
+	r := limit(mux)
 
-	for i := 0;i<10;i++ {
-		res, err := http.Get(svr.URL)
-		if err != nil {
-			log.Fatal(err)
-		}
+	//Test with ok loading
+	for i := 0;i<60;i++ {
+		w := performRequest(r, "GET", "/", "192.168.12.1:8080")
+   		res := w.Result()
+
 		greeting, err := ioutil.ReadAll(res.Body)
 		res.Body.Close()
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		fmt.Printf("%s", greeting)
+		fmt.Printf("%s\n", greeting)
+		if(w.Code != 200){
+			t.Errorf("Server returned wrong status code: got %d want %d", w.Code, 200)
+		}
 		time.Sleep(10*time.Millisecond);
 	}
 
-	// res2, err2 := http.Get(svr.URL)
-	// if err2 != nil {
-	// 	log.Fatal(err2)
-	// }
-	// greeting2, err2 := ioutil.ReadAll(res2.Body)
-	// res2.Body.Close()
-	// if err2 != nil {
-	// 	log.Fatal(err2)
-	// }
+	//Test with over loading
+	for i := 0;i<61;i++ {
+		w := performRequest(r, "GET", "/", "192.168.12.2:8080")
+   		res := w.Result()
 
-	// fmt.Printf("%s", greeting2)
+		greeting, err := ioutil.ReadAll(res.Body)
+		res.Body.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
 
-	// res3, err3 := http.Get(svr.URL)
-	// if err3 != nil {
-	// 	log.Fatal(err3)
-	// }
-	// greeting3, err3 := ioutil.ReadAll(res3.Body)
-	// res3.Body.Close()
-	// if err3 != nil {
-	// 	log.Fatal(err3)
-	// }
+		fmt.Printf("%s\n", greeting)
 
-	// fmt.Printf("%s", greeting3)
-
-	// res24, err24 := http.Get(svr.URL)
-	// if err24 != nil {
-	// 	log.Fatal(err24)
-	// }
-	// greeting24, err24 := ioutil.ReadAll(res24.Body)
-	// res24.Body.Close()
-	// if err24 != nil {
-	// 	log.Fatal(err24)
-	// }
-
-	// fmt.Printf("%s", greeting24)
-	// w1 := performRequest(mux, "GET", "/")
-	// w2 := performRequest(mux, "GET", "/")
-	// status1 := w1.Code
-	// log.Println(status1)
-	// body1, _ := ioutil.ReadAll(w1.Result().Body)
-	// fmt.Println(string(body1))
-
-	// status2 := w2.Code
-	// log.Println(status2)
-	// body2, _ := ioutil.ReadAll(w2.Result().Body)
-	// fmt.Println(string(body2))
+		if(i == 61 && w.Code != 429){
+			t.Errorf("Server returned wrong status code: got %d want %d", w.Code, 429)
+		}
+		time.Sleep(10*time.Millisecond);
+	}
 }
