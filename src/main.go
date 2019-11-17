@@ -92,7 +92,7 @@ func cleanupVisitors() {
         mu.Lock()
         defer mu.Unlock()
         for ip, v := range visitors {
-            if time.Now().Sub(v.lastSeen) > 3*time.Minute {
+            if time.Now().Sub(v.lastSeen) > 1*time.Minute {
                 delete(visitors, ip)
             }
         }
